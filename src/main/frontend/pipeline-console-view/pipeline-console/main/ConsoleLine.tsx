@@ -1,6 +1,6 @@
 import DOMPurify from "dompurify";
 import linkifyHtml from "linkify-html";
-import { memo } from "react";
+import { memo, type MouseEvent } from "react";
 
 import { BuildStep } from "../../../common/RestClient.tsx";
 import { linkifyJsOptions } from "../../../common/utils/linkify-js.ts";
@@ -14,6 +14,29 @@ export interface ConsoleLineProps {
   startByte: number;
   currentRunPath: string;
   buildStep?: BuildStep;
+}
+
+/**
+ * POSTs a POSTHyperlinkNote link (e.g. an input step's console links), which the classic
+ * console wires up with workflow-support's POSTHyperlinkNote/script.js.
+ */
+function postHyperlinkNote(event: MouseEvent<HTMLDivElement>) {
+  const link = (event.target as Element).closest<HTMLElement>(
+    "a.post-hyperlink-note-button",
+  );
+  const encodedUrl = link?.dataset.encodedUrl;
+  if (!encodedUrl) {
+    return;
+  }
+  event.preventDefault();
+  const base64 = encodedUrl.replace(/-/g, "+").replace(/_/g, "/");
+  const url = new URL(decodeURIComponent(atob(base64)), window.location.href);
+  if (url.origin !== window.location.origin) {
+    return;
+  }
+  fetch(url, { method: "POST", headers: window.crumb.wrap({}) }).catch(
+    console.error,
+  );
 }
 
 // Console output line
@@ -55,13 +78,13 @@ export const ConsoleLine = memo(function ConsoleLine(props: ConsoleLineProps) {
         >
           {props.lineNumber}
         </a>
-        <div className="console-text">
+        <div className="console-text" onClick={postHyperlinkNote}>
           {makeReactChildren(
             tokenizeANSIString(
               DOMPurify.sanitize(linkifyHtml(content, linkifyJsOptions), {
                 ALLOWED_TAGS: ["a", "span", "b"],
                 ALLOWED_ATTR: ["href", "rel", "class", "style"],
-                ALLOWED_URI_REGEXP: /^(?:https?:\/\/|\/(?![/\\]))/i,
+                ALLOWED_URI_REGEXP: /^(?:https?:\/\/|\/(?![/\\])|#$)/i,
               }),
             ),
             id,

@@ -1,4 +1,5 @@
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
+import { beforeEach, vi } from "vitest";
 
 import { ConsoleLine, type ConsoleLineProps } from "./ConsoleLine.tsx";
 
@@ -44,6 +45,55 @@ describe("ConsoleLine", () => {
     expect(consoleText).toHaveTextContent("data link");
     expect(consoleText).toHaveTextContent("for details");
   });
+  describe("POSTHyperlinkNote links", () => {
+    const fetchMock = vi.fn();
+
+    beforeEach(() => {
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValue({ ok: true });
+      vi.stubGlobal("fetch", fetchMock);
+      window.crumb = {
+        wrap: vi.fn().mockReturnValue({ "Jenkins-Crumb": "crumb" }),
+      } as unknown as Crumb;
+    });
+
+    // Matches POSTHyperlinkNote: URL-encode, then URL-safe base64.
+    function postLink(url: string, text: string) {
+      const encoded = btoa(encodeURIComponent(url))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_");
+      return `<a href='#' data-encoded-url='${encoded}' class='post-hyperlink-note-button'>${text}</a>`;
+    }
+
+    it("POSTs the link's URL with the crumb when clicked", () => {
+      const { container } = renderConsoleLine(
+        `${postLink("/jenkins/job/name/1/input/abc/proceedEmpty", "Yes")} or ${postLink("/jenkins/job/name/1/input/abc/abort", "Abort")}`,
+      );
+
+      const links = container.querySelectorAll(".console-text a");
+      expect(links[1]).toHaveAttribute("href", "#");
+      fireEvent.click(links[1]);
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(new URL(url).pathname).toBe("/jenkins/job/name/1/input/abc/abort");
+      expect(init).toEqual({
+        method: "POST",
+        headers: { "Jenkins-Crumb": "crumb" },
+      });
+    });
+
+    it("does not POST to another origin", () => {
+      const { container } = renderConsoleLine(
+        postLink("https://example.com/steal", "Yes"),
+      );
+
+      fireEvent.click(container.querySelector(".console-text a")!);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
   it("preserves safe Jenkins relative links", () => {
     const { container } = renderConsoleLine(
       'Starting building: <a href="/jenkins/job/downstream/1/stages">downstream #1</a>',
